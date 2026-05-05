@@ -1,0 +1,15 @@
+num_players: 4
+hand_size: 12
+zamin_size: 4
+zamin_discard_count: 4
+
+card_points:
+  A: 11
+  Q: 10
+  "10": 5
+
+min_bid: 100
+max_bid: 165
+bid_increment: 5
+shelem_bonus: 250
+game_threshold: 660
