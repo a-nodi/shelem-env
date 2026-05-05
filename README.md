@@ -159,6 +159,8 @@ pytest
 
 ## Documentation
 
-- [docs/rules.md](docs/rules.md) — 상세 게임 규칙 및 플레이 예시
-- [docs/quickstart.md](docs/quickstart.md) — 환경 사용법
-- [docs/visualization.md](docs/visualization.md) — 터미널 렌더러 사용법
+| | English | 한국어 |
+|-|---------|--------|
+| Game Rules | [docs/en/rules.md](docs/en/rules.md) | [docs/ko/rules.md](docs/ko/rules.md) |
+| Quick Start | [docs/en/quickstart.md](docs/en/quickstart.md) | [docs/ko/quickstart.md](docs/ko/quickstart.md) |
+| Visualization | [docs/en/visualization.md](docs/en/visualization.md) | [docs/ko/visualization.md](docs/ko/visualization.md) |
