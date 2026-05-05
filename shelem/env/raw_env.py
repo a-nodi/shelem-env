@@ -108,8 +108,10 @@ class RawEnv:
                 # re-deal with next dealer (§12 edge case)
                 next_dealer = (state.dealer + 1) % self.config.num_players
                 prev_scores = state.scores[:]
+                prev_log = state.score_log[:]
                 self.state = self._deal(next_dealer)
                 self.state.scores = prev_scores
+                self.state.score_log = prev_log
             else:
                 state.phase = PhaseEnum.ZAMIN_EXCHANGE
                 ZaminExchangePhase.setup(state)
@@ -130,5 +132,7 @@ class RawEnv:
                 # auto-deal next hand; SCORING phase is never "resting state"
                 next_dealer = (state.dealer + 1) % self.config.num_players
                 prev_scores = state.scores[:]
+                prev_log = state.score_log[:]
                 self.state = self._deal(next_dealer)
                 self.state.scores = prev_scores
+                self.state.score_log = prev_log

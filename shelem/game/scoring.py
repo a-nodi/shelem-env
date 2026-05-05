@@ -42,12 +42,37 @@ def compute_hand_result(state: GameState) -> tuple[int, int]:
     return deltas[0], deltas[1]
 
 
+def _outcome_label(state: GameState, d0: int, d1: int) -> str:
+    declarer_team = state.config.team_of(state.declarer)  # type: ignore[arg-type]
+    total_tricks = state.config.tricks_per_hand + 1
+    if state.tricks_won[declarer_team] == total_tricks:
+        return "SHELEM"
+    declarer_earned = state.points_won[declarer_team]
+    defender_earned = state.points_won[1 - declarer_team]
+    if declarer_earned >= state.current_bid:
+        return "WIN"
+    if declarer_earned < defender_earned:
+        return "DOUBLE"
+    return "FAIL"
+
+
 def apply_hand_result(state: GameState) -> None:
-    """Mutate state.scores and set hand_over / game_over flags."""
+    """Mutate state.scores, append to score_log, and set hand_over / game_over flags."""
     d0, d1 = compute_hand_result(state)
+    outcome = _outcome_label(state, d0, d1)
+
     state.scores[0] += d0
     state.scores[1] += d1
     state.hand_over = True
+
+    state.score_log.append({
+        "hand":          len(state.score_log) + 1,
+        "declarer_team": state.config.team_of(state.declarer),  # type: ignore[arg-type]
+        "bid":           state.current_bid,
+        "outcome":       outcome,
+        "delta":         [d0, d1],
+        "scores":        state.scores[:],
+    })
 
     # game ends when a team reaches/exceeds threshold, or drops below -threshold (§7.3)
     t = state.config.game_threshold

@@ -54,6 +54,7 @@ class GameState:
 
     # --- play ---
     current_trick: list[tuple[int, Card]] = field(default_factory=list)
+    last_completed_trick: list[tuple[int, Card]] = field(default_factory=list)
     trick_leader: int = 0
     tricks_won: list[int] = field(default_factory=lambda: [0, 0])
     points_won: list[int] = field(default_factory=lambda: [0, 0])
@@ -64,6 +65,11 @@ class GameState:
     hand_over: bool = False
     game_over: bool = False
     void_hand: bool = False  # True when all 4 passed without a bid
+
+    # --- score history: one entry per completed hand ---
+    # Each entry: {"hand": int, "declarer_team": int, "bid": int,
+    #              "outcome": str, "delta": [int,int], "scores": [int,int]}
+    score_log: list[dict] = field(default_factory=list)
 
     def active_bidders(self) -> list[int]:
         return [p for p in range(self.config.num_players) if not self.passed[p]]

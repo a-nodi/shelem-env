@@ -69,6 +69,114 @@ def _action_label(action: int | None, cfg: ShelemConfig) -> str:
     return f"declare {PlayMode(action - ACTION_MODE_OFFSET).name}"
 
 
+def _hand_text(state, player: int, show: bool, per_row: int = 4, max_rows: int = 0) -> Text:
+    hand = sorted(state.hands.get(player, []), key=lambda c: (c.suit.value, c.rank.value))
+    t = Text()
+    if not show:
+        t.append(f"({len(hand)} cards)", style="dim")
+        for _ in range(max(0, max_rows - 1)):
+            t.append("\n")
+        return t
+    rows = [hand[i:i + per_row] for i in range(0, len(hand), per_row)]
+    total = max(len(rows), max_rows)
+    for r in range(total):
+        if r > 0:
+            t.append("\n")
+        if r < len(rows):
+            for c, card in enumerate(rows[r]):
+                if c > 0:
+                    t.append(" ")
+                t.append(_card_str(card), style=_SUIT_COLOR[card.suit.value])
+    return t
+
+
+def _bid_label(state, player: int) -> tuple[str, str]:
+    """Return (label_text, style) for a player's bidding status."""
+    if state.passed[player]:
+        return "PASS", "dim"
+    bids = [b for b in state.bid_history[player] if b]
+    if bids:
+        return f"bid {max(bids)}", "bold green"
+    return "—", "dim"
+
+
+def _player_panel(state, player: int, show: bool, per_row: int, active: bool) -> Panel:
+    team = player % 2
+    # Always 2 display chars so the panel width never changes on turn switch
+    marker = " ◄" if active else "  "
+    title = Text()
+    title.append(f"P{player} · Team {team}{marker}", style="bold yellow" if active else "bold")
+
+    # During bidding, pad label to fixed width so title length stays constant
+    if state.phase == PhaseEnum.BIDDING:
+        label, style = _bid_label(state, player)
+        title.append(f"  [{label:<7}]", style=style)
+
+    # Fixed height: always render ceil(hand_size / per_row) rows
+    max_rows = (state.config.hand_size + per_row - 1) // per_row
+
+    border = "yellow" if active else ("blue" if team == 0 else "white")
+    return Panel(_hand_text(state, player, show, per_row, max_rows),
+                 title=title, border_style=border, padding=(0, 1))
+
+
+def _center_panel(state, cfg) -> Panel:
+    """Center panel: Bidding / Zamin Exchange / Trick depending on phase."""
+    if state.phase == PhaseEnum.BIDDING:
+        t = Text()
+        t.append("Current bid\n", style="bold")
+        t.append(
+            f"  {state.current_bid}" if state.current_bid else "  —",
+            style="bold cyan",
+        )
+        t.append("\n\n")
+        for p in range(cfg.num_players):
+            label, style = _bid_label(state, p)
+            t.append(f"P{p}: ")
+            t.append(label, style=style)
+            t.append("\n")
+        return Panel(t, title="Bidding", border_style="cyan", padding=(0, 2))
+
+    if state.phase == PhaseEnum.ZAMIN_EXCHANGE:
+        t = Text()
+        t.append("Zamin  ", style="bold")
+        for card in sorted(state.zamin, key=lambda c: (c.suit.value, c.rank.value)):
+            t.append_text(_card_text(card))
+            t.append(" ")
+        t.append("\n\nDiscard  ", style="bold")
+        discarded = sorted(state.zamin_discards, key=lambda c: (c.suit.value, c.rank.value))
+        if discarded:
+            for card in discarded:
+                t.append_text(_card_text(card))
+                t.append(" ")
+        else:
+            t.append("—", style="dim")
+        remaining = cfg.zamin_discard_count - state.zamin_selected_count
+        if remaining > 0:
+            t.append(f"\n({remaining} to discard)", style="dim italic")
+        return Panel(t, title="Zamin Exchange", border_style="magenta", padding=(0, 2))
+
+    # PLAY and other phases: show current trick or last completed trick
+    is_last = not state.current_trick and bool(state.last_completed_trick)
+    display_trick = state.current_trick or state.last_completed_trick
+
+    players_played = {p: c for p, c in display_trick}
+    trick_t = Text()
+    # status line keeps the panel height stable and signals "last trick"
+    trick_t.append("last " if is_last else "     ", style="dim")
+    trick_t.append("\n")
+    for p in range(cfg.num_players):
+        card = players_played.get(p)
+        if card is not None:
+            trick_t.append(f"P{p}: ")
+            trick_t.append_text(_card_text(card))
+        else:
+            trick_t.append(f"P{p}: ", style="dim")
+            trick_t.append("—", style="dim")
+        trick_t.append("\n")
+    return Panel(trick_t, title="Trick", border_style="green", padding=(0, 2))
+
+
 def _build_panel(
     env: ShelemAECEnv,
     last_agent: str,
@@ -79,10 +187,16 @@ def _build_panel(
     cfg = env._config
     current = env.agent_selection if env.agents else "-"
 
-    # ── header row ──────────────────────────────────────────────────────
-    trump_sym = _SUIT_SYM[state.trump_suit.value] if state.trump_suit else "?"
+    def active(p: int) -> bool:
+        return f"player_{p}" == current
+
+    def show(p: int) -> bool:
+        return show_all_hands or active(p)
+
+    # ── header ───────────────────────────────────────────────────────────
+    trump_sym   = _SUIT_SYM[state.trump_suit.value] if state.trump_suit else "?"
     trump_color = _SUIT_COLOR[state.trump_suit.value] if state.trump_suit else "dim"
-    declarer_str = f"player_{state.declarer}" if state.declarer is not None else "-"
+    decl_str    = f"P{state.declarer}" if state.declarer is not None else "-"
 
     header = Text()
     header.append("Phase: ", style="bold")
@@ -90,62 +204,82 @@ def _build_panel(
     header.append("   Trump: ", style="bold")
     header.append(trump_sym, style=f"bold {trump_color}")
     header.append("   Declarer: ", style="bold")
-    header.append(declarer_str, style="bold magenta")
+    header.append(decl_str, style="bold magenta")
     header.append("   Bid: ", style="bold")
     header.append(str(state.current_bid) if state.current_bid else "-")
 
-    # ── current trick ────────────────────────────────────────────────────
-    trick_label = Text("Current Trick  ", style="bold underline")
-    trick_body = Text()
-    if state.current_trick:
-        for i, (p, card) in enumerate(state.current_trick):
-            if i:
-                trick_body.append("    ")
-            trick_body.append(f"P{p}: ")
-            trick_body.append_text(_card_text(card))
-    else:
-        trick_body.append("(empty)", style="dim")
+    # ── cross layout (all player panels same width) ──────────────────────
+    #
+    #       [ P2 (North) ]
+    #  [P3]  [Center]  [P1]
+    #       [ P0 (South) ]
+    #
+    mid = Table(show_header=False, box=None, padding=(0, 0))
+    mid.add_column("west",   no_wrap=True)
+    mid.add_column("center", no_wrap=True)
+    mid.add_column("east",   no_wrap=True)
+    mid.add_row(
+        "",
+        _player_panel(state, 2, show(2), per_row=2, active=active(2)),
+        "",
+    )
+    mid.add_row(
+        _player_panel(state, 3, show(3), per_row=2, active=active(3)),
+        _center_panel(state, cfg),
+        _player_panel(state, 1, show(1), per_row=2, active=active(1)),
+    )
+    mid.add_row(
+        "",
+        _player_panel(state, 0, show(0), per_row=2, active=active(0)),
+        "",
+    )
 
-    trick_line = Text()
-    trick_line.append_text(trick_label)
-    trick_line.append_text(trick_body)
+    # ── score history + current hand ─────────────────────────────────────
+    _OUTCOME_STYLE = {
+        "WIN":    "green",
+        "FAIL":   "red",
+        "DOUBLE": "bold red",
+        "SHELEM": "bold yellow",
+    }
 
-    # ── hands ────────────────────────────────────────────────────────────
-    hand_section = Text("Hands\n", style="bold underline")
-    for p in range(cfg.num_players):
-        agent = f"player_{p}"
-        is_active = agent == current
-        row = Text()
-        marker = "►" if is_active else " "
-        row.append(
-            f"  P{p} {marker}  ",
-            style="bold yellow" if is_active else "",
+    tbl = Table(show_header=True, header_style="bold", box=None, padding=(0, 1))
+    tbl.add_column("#",      justify="right",  style="dim", min_width=2)
+    tbl.add_column("Bid",    justify="right",               min_width=3)
+    tbl.add_column("Result", justify="left",                min_width=17)
+    tbl.add_column("T0 Δ",   justify="right",               min_width=5)
+    tbl.add_column("T1 Δ",   justify="right",               min_width=5)
+    tbl.add_column("→ T0",   justify="right",               min_width=5)
+    tbl.add_column("→ T1",   justify="right",               min_width=5)
+
+    for entry in state.score_log:
+        d0, d1 = entry["delta"]
+        s0, s1 = entry["scores"]
+        outcome = entry["outcome"]
+        st = _OUTCOME_STYLE.get(outcome, "")
+        result = f"T{entry['declarer_team']} {outcome}"
+        tbl.add_row(
+            str(entry["hand"]),
+            str(entry["bid"]),
+            f"[{st}]{result}[/{st}]" if st else result,
+            f"[{st}]{d0:+}[/{st}]" if st else f"{d0:+}",
+            f"[{st}]{d1:+}[/{st}]" if st else f"{d1:+}",
+            str(s0),
+            str(s1),
         )
 
-        hand = sorted(
-            state.hands.get(p, []),
-            key=lambda c: (c.suit.value, c.rank.value),
-        )
-
-        if show_all_hands or is_active:
-            for i, card in enumerate(hand):
-                if i:
-                    row.append(" ")
-                row.append(_card_str(card), style=_SUIT_COLOR[card.suit.value])
-        else:
-            row.append(f"[{len(hand)} cards]", style="dim")
-
-        hand_section.append_text(row)
-        hand_section.append("\n")
-
-    # ── score table ───────────────────────────────────────────────────────
-    tbl = Table(show_header=True, header_style="bold", box=None, padding=(0, 3))
-    tbl.add_column("", style="bold", min_width=8)
-    tbl.add_column("Team 0  (P0+P2)", justify="center", min_width=16)
-    tbl.add_column("Team 1  (P1+P3)", justify="center", min_width=16)
-    tbl.add_row("Score",  str(state.scores[0]),      str(state.scores[1]))
-    tbl.add_row("Tricks", str(state.tricks_won[0]),  str(state.tricks_won[1]))
-    tbl.add_row("Points", str(state.points_won[0]),  str(state.points_won[1]))
+    # current hand in-progress — fixed-width format keeps the table width stable
+    tw = state.tricks_won
+    pw = state.points_won
+    result_now = f"T:{tw[0]:>2}/{tw[1]:<2} P:{pw[0]:>3}/{pw[1]:<3}"
+    tbl.add_row(
+        "now",
+        str(state.current_bid) if state.current_bid else "-",
+        f"[dim]{result_now}[/dim]",
+        "",
+        "",
+        f"[bold]{state.scores[0]}[/bold]",
+        f"[bold]{state.scores[1]}[/bold]",
+    )
 
     # ── last action ───────────────────────────────────────────────────────
     last_line = Text(style="dim")
@@ -155,9 +289,8 @@ def _build_panel(
     content = Group(
         header,
         Text(""),
-        trick_line,
+        mid,
         Text(""),
-        hand_section,
         tbl,
         Text(""),
         last_line,

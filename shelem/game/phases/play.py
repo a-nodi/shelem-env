@@ -57,6 +57,7 @@ def _resolve_trick(state: GameState) -> None:
     state.points_won[team] += 5
 
     state.completed_tricks += 1
+    state.last_completed_trick = list(state.current_trick)
     state.current_trick = []
     state.trick_leader = winner
     state.current_agent = winner
