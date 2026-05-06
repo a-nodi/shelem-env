@@ -121,60 +121,81 @@ def _player_panel(state, player: int, show: bool, per_row: int, active: bool) ->
 
 
 def _center_panel(state, cfg) -> Panel:
-    """Center panel: Bidding / Zamin Exchange / Trick depending on phase."""
+    """Center panel: same dimensions as player panels for a square cross layout.
+
+    Width  = len("Zamin Exchange") + 4 = 18  (title-driven, matches player panel width)
+    Height = ceil(hand_size / 2) content lines  (matches player panel row count with per_row=2)
+    """
+    _cw    = len("Zamin Exchange") + 4          # 18 for all configs
+    _lines = (cfg.hand_size + 1) // 2           # 6 (default) / 8 (3-player)
+
     if state.phase == PhaseEnum.BIDDING:
         t = Text()
-        t.append("Current bid\n", style="bold")
-        t.append(
-            f"  {state.current_bid}" if state.current_bid else "  —",
-            style="bold cyan",
-        )
-        t.append("\n\n")
+        t.append("Bid  ", style="bold")
+        t.append(str(state.current_bid) if state.current_bid else "—", style="bold cyan")
+        t.append("\n")
         for p in range(cfg.num_players):
             label, style = _bid_label(state, p)
             t.append(f"P{p}: ")
             t.append(label, style=style)
             t.append("\n")
-        return Panel(t, title="Bidding", border_style="cyan", padding=(0, 2))
+        for _ in range(_lines - 1 - cfg.num_players):
+            t.append("\n")
+        return Panel(t, title="Bidding", border_style="cyan", padding=(0, 1), width=_cw)
 
     if state.phase == PhaseEnum.ZAMIN_EXCHANGE:
+        zamin_cards = sorted(state.zamin, key=lambda c: (c.suit.value, c.rank.value))
+        discarded   = sorted(state.zamin_discards, key=lambda c: (c.suit.value, c.rank.value))
+        remaining   = cfg.zamin_discard_count - state.zamin_selected_count
+        zamin_rows  = (len(zamin_cards) + 1) // 2
+        disc_rows   = (cfg.zamin_discard_count + 1) // 2
+
         t = Text()
-        t.append("Zamin  ", style="bold")
-        for card in sorted(state.zamin, key=lambda c: (c.suit.value, c.rank.value)):
-            t.append_text(_card_text(card))
-            t.append(" ")
-        t.append("\n\nDiscard  ", style="bold")
-        discarded = sorted(state.zamin_discards, key=lambda c: (c.suit.value, c.rank.value))
-        if discarded:
-            for card in discarded:
+        t.append("Zamin\n", style="bold")
+        for i in range(0, len(zamin_cards), 2):
+            t.append("  ")
+            for card in zamin_cards[i : i + 2]:
                 t.append_text(_card_text(card))
                 t.append(" ")
-        else:
-            t.append("—", style="dim")
-        remaining = cfg.zamin_discard_count - state.zamin_selected_count
+            t.append("\n")
+        t.append("Discard", style="bold")
         if remaining > 0:
-            t.append(f"\n({remaining} to discard)", style="dim italic")
-        return Panel(t, title="Zamin Exchange", border_style="magenta", padding=(0, 2))
+            t.append(f"  {remaining}", style="dim")
+        t.append("\n")
+        for i in range(0, disc_rows * 2, 2):
+            row = discarded[i : i + 2]
+            t.append("  ")
+            if row:
+                for card in row:
+                    t.append_text(_card_text(card))
+                    t.append(" ")
+            else:
+                t.append("—", style="dim")
+            t.append("\n")
+        for _ in range(_lines - 1 - zamin_rows - 1 - disc_rows):
+            t.append("\n")
+        return Panel(t, title="Zamin Exchange", border_style="magenta", padding=(0, 1), width=_cw)
 
     # PLAY and other phases: show current trick or last completed trick
-    is_last = not state.current_trick and bool(state.last_completed_trick)
+    is_last      = not state.current_trick and bool(state.last_completed_trick)
     display_trick = state.current_trick or state.last_completed_trick
 
     players_played = {p: c for p, c in display_trick}
-    trick_t = Text()
-    # status line keeps the panel height stable and signals "last trick"
-    trick_t.append("last " if is_last else "     ", style="dim")
-    trick_t.append("\n")
+    t = Text()
+    t.append("last " if is_last else "     ", style="dim")
+    t.append("\n")
     for p in range(cfg.num_players):
         card = players_played.get(p)
         if card is not None:
-            trick_t.append(f"P{p}: ")
-            trick_t.append_text(_card_text(card))
+            t.append(f"P{p}: ")
+            t.append_text(_card_text(card))
         else:
-            trick_t.append(f"P{p}: ", style="dim")
-            trick_t.append("—", style="dim")
-        trick_t.append("\n")
-    return Panel(trick_t, title="Trick", border_style="green", padding=(0, 2))
+            t.append(f"P{p}: ", style="dim")
+            t.append("—", style="dim")
+        t.append("\n")
+    for _ in range(_lines - 1 - cfg.num_players):
+        t.append("\n")
+    return Panel(t, title="Trick", border_style="green", padding=(0, 1), width=_cw)
 
 
 def _build_panel(
